@@ -29,12 +29,15 @@ type (
 		Heartbeat  time.Duration `json:",default=60s"`
 	}
 
+	SqlOption func(*multipleSqlConn)
+
 	multipleSqlConn struct {
 		leader         sqlx.SqlConn
 		enableFollower bool
 		p2cPicker      atomic.Value // picker
 		followers      []sqlx.SqlConn
 		conf           DBConf
+		accept         func(error) bool
 	}
 	followerSqlConn struct {
 		conn sqlx.SqlConn
@@ -42,7 +45,7 @@ type (
 )
 
 // NewMultipleSqlConn returns a SqlConn that supports leader-follower read/write separation.
-func NewMultipleSqlConn(driverName string, conf DBConf) sqlx.SqlConn {
+func NewMultipleSqlConn(driverName string, conf DBConf, opts ...SqlOption) sqlx.SqlConn {
 	leader := sqlx.NewSqlConn(driverName, conf.Leader)
 	followers := make([]sqlx.SqlConn, 0, len(conf.Followers))
 	for _, datasource := range conf.Followers {
@@ -53,6 +56,9 @@ func NewMultipleSqlConn(driverName string, conf DBConf) sqlx.SqlConn {
 		leader:         leader,
 		enableFollower: len(followers) != 0,
 		followers:      followers,
+	}
+	for _, opt := range opts {
+		opt(conn)
 	}
 
 	ctx, cancelFunc := context.WithCancel(context.Background())
@@ -183,7 +189,7 @@ func (m *multipleSqlConn) heartbeat() {
 		conns = append(conns, follower)
 	}
 
-	m.p2cPicker.Store(newP2cPicker(conns))
+	m.p2cPicker.Store(newP2cPicker(conns, m.accept))
 }
 
 func (m *multipleSqlConn) startHeartbeat(ctx context.Context) {
@@ -296,4 +302,12 @@ func pingCtxDB(ctx context.Context, conn sqlx.SqlConn) error {
 	}
 
 	return db.PingContext(ctx)
+}
+
+// -------------
+
+func WithAccept(accept func(err error) bool) SqlOption {
+	return func(conn *multipleSqlConn) {
+		conn.accept = accept
+	}
 }
