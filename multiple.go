@@ -85,7 +85,7 @@ func (m *multipleSqlConn) QueryRow(v any, query string, args ...any) error {
 }
 
 func (m *multipleSqlConn) QueryRowCtx(ctx context.Context, v any, query string, args ...any) error {
-	db := m.getQueryDb(query)
+	db := m.getQueryDB(query)
 	return db.query(func(conn sqlx.SqlConn) error {
 		return conn.QueryRowCtx(ctx, v, query, args...)
 	})
@@ -96,7 +96,7 @@ func (m *multipleSqlConn) QueryRowPartial(v any, query string, args ...any) erro
 }
 
 func (m *multipleSqlConn) QueryRowPartialCtx(ctx context.Context, v any, query string, args ...any) error {
-	db := m.getQueryDb(query)
+	db := m.getQueryDB(query)
 	return db.query(func(conn sqlx.SqlConn) error {
 		return conn.QueryRowPartialCtx(ctx, v, query, args...)
 	})
@@ -107,7 +107,7 @@ func (m *multipleSqlConn) QueryRows(v any, query string, args ...any) error {
 }
 
 func (m *multipleSqlConn) QueryRowsCtx(ctx context.Context, v any, query string, args ...any) error {
-	db := m.getQueryDb(query)
+	db := m.getQueryDB(query)
 	return db.query(func(conn sqlx.SqlConn) error {
 		return conn.QueryRowsCtx(ctx, v, query, args...)
 	})
@@ -118,7 +118,7 @@ func (m *multipleSqlConn) QueryRowsPartial(v any, query string, args ...any) err
 }
 
 func (m *multipleSqlConn) QueryRowsPartialCtx(ctx context.Context, v any, query string, args ...any) error {
-	db := m.getQueryDb(query)
+	db := m.getQueryDB(query)
 	return db.query(func(conn sqlx.SqlConn) error {
 		return conn.QueryRowsPartialCtx(ctx, v, query, args...)
 	})
@@ -147,22 +147,22 @@ func (m *multipleSqlConn) containSelect(query string) bool {
 	return false
 }
 
-func (m *multipleSqlConn) getQueryDb(query string) queryDb {
+func (m *multipleSqlConn) getQueryDB(query string) queryDB {
 	if m.containSelect(query) && m.enableFollower {
 		result, err := m.p2cPicker.Load().(picker).pick()
 		if err == nil {
-			return queryDb{
+			return queryDB{
 				conn: result.conn,
 				done: result.done,
 			}
 		}
 
 		if !m.conf.BackLeader {
-			return queryDb{error: err}
+			return queryDB{error: err}
 		}
 	}
 
-	return queryDb{conn: m.leader}
+	return queryDB{conn: m.leader}
 }
 
 func (m *multipleSqlConn) heartbeat() {
@@ -196,13 +196,13 @@ func (m *multipleSqlConn) startHeartbeat(ctx context.Context) {
 
 // -------------
 
-type queryDb struct {
+type queryDB struct {
 	conn  sqlx.SqlConn
 	error error
 	done  func(err error)
 }
 
-func (q *queryDb) query(query func(conn sqlx.SqlConn) error) (err error) {
+func (q *queryDB) query(query func(conn sqlx.SqlConn) error) (err error) {
 	if q.error != nil {
 		return q.error
 	}
