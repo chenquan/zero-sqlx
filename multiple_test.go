@@ -16,6 +16,7 @@ func TestNewMultipleSqlConn(t *testing.T) {
 	leader := "leader"
 	follower1 := "follower1"
 	_, follower1Mock, err := sqlmock.NewWithDSN(follower1, sqlmock.MonitorPingsOption(true))
+	assert.NoError(t, err)
 	_, leaderMock, err := sqlmock.NewWithDSN(leader, sqlmock.MonitorPingsOption(true))
 	assert.NoError(t, err)
 
