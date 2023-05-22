@@ -148,18 +148,24 @@ func (m *multipleSqlConn) containSelect(query string) bool {
 }
 
 func (m *multipleSqlConn) getQueryDB(query string) queryDB {
-	if m.containSelect(query) && m.enableFollower {
-		result, err := m.p2cPicker.Load().(picker).pick()
-		if err == nil {
-			return queryDB{
-				conn: result.conn,
-				done: result.done,
-			}
-		}
+	if !m.enableFollower {
+		return queryDB{conn: m.leader}
+	}
 
-		if !m.conf.BackLeader {
-			return queryDB{error: err}
+	if !m.containSelect(query) {
+		return queryDB{conn: m.leader}
+	}
+
+	result, err := m.p2cPicker.Load().(picker).pick()
+	if err == nil {
+		return queryDB{
+			conn: result.conn,
+			done: result.done,
 		}
+	}
+
+	if !m.conf.BackLeader {
+		return queryDB{error: err}
 	}
 
 	return queryDB{conn: m.leader}
