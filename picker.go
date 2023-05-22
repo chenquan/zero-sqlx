@@ -1,6 +1,8 @@
 package sqlx
 
 import (
+	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"math"
@@ -37,14 +39,15 @@ type (
 		done func(err error)
 	}
 	p2cPicker struct {
-		conns []*subConn
-		r     *rand.Rand
-		stamp *syncx.AtomicDuration
-		lock  sync.Mutex
+		conns  []*subConn
+		r      *rand.Rand
+		stamp  *syncx.AtomicDuration
+		lock   sync.Mutex
+		accept func(err error) bool
 	}
 )
 
-func newP2cPicker(followers []sqlx.SqlConn) *p2cPicker {
+func newP2cPicker(followers []sqlx.SqlConn, accept func(err error) bool) *p2cPicker {
 	var conns []*subConn
 	for i, follower := range followers {
 		conns = append(conns, &subConn{
@@ -55,9 +58,10 @@ func newP2cPicker(followers []sqlx.SqlConn) *p2cPicker {
 	}
 
 	return &p2cPicker{
-		conns: conns,
-		r:     rand.New(rand.NewSource(time.Now().UnixNano())),
-		stamp: syncx.NewAtomicDuration(),
+		conns:  conns,
+		r:      rand.New(rand.NewSource(time.Now().UnixNano())),
+		stamp:  syncx.NewAtomicDuration(),
+		accept: accept,
 	}
 }
 
@@ -122,7 +126,7 @@ func (p *p2cPicker) buildDoneFunc(c *subConn) func(err error) {
 		atomic.StoreUint64(&c.lag, uint64(float64(olag)*w+float64(lag)*(1-w)))
 		success := initSuccess
 
-		if err != nil && !acceptable(err) {
+		if err != nil && !p.acceptable(err) {
 			success = 0
 		}
 
@@ -198,10 +202,11 @@ func (c *subConn) load() int64 {
 	return load
 }
 
-func acceptable(err error) bool {
-	if errors.Is(err, sqlx.ErrNotFound) {
-		return true
+func (p *p2cPicker) acceptable(err error) bool {
+	ok := err == nil || err == sql.ErrNoRows || err == sql.ErrTxDone || err == context.Canceled
+	if p.accept == nil {
+		return ok
 	}
 
-	return false
+	return ok || p.accept(err)
 }
