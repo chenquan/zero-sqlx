@@ -14,7 +14,7 @@ import (
 )
 
 var (
-	_ sqlx.SqlConn = (*followerSqlConn)(nil)
+	//_ sqlx.SqlConn = (*followerSqlConn)(nil)
 	_ sqlx.SqlConn = (*multipleSqlConn)(nil)
 )
 
@@ -56,10 +56,12 @@ func NewMultipleSqlConn(driverName string, conf DBConf, opts ...SqlOption) sqlx.
 		leader:         leader,
 		enableFollower: len(followers) != 0,
 		followers:      followers,
+		conf:           conf,
 	}
 	for _, opt := range opts {
 		opt(conn)
 	}
+	conn.p2cPicker.Store(newP2cPicker(followers, conn.accept))
 
 	ctx, cancelFunc := context.WithCancel(context.Background())
 	proc.AddShutdownListener(func() {
@@ -193,8 +195,6 @@ func (m *multipleSqlConn) heartbeat() {
 }
 
 func (m *multipleSqlConn) startHeartbeat(ctx context.Context) {
-	m.heartbeat()
-
 	ticker := time.NewTicker(m.conf.Heartbeat)
 	for {
 		select {
@@ -228,69 +228,68 @@ func (q *queryDB) query(query func(conn sqlx.SqlConn) error) (err error) {
 }
 
 // -------------
-
-func (f *followerSqlConn) QueryRow(v any, query string, args ...any) error {
-	return f.conn.QueryRow(v, query, args...)
-}
-
-func (f *followerSqlConn) QueryRowCtx(ctx context.Context, v any, query string, args ...any) error {
-	return f.conn.QueryRowCtx(ctx, v, query, args...)
-}
-
-func (f *followerSqlConn) QueryRowPartial(v any, query string, args ...any) error {
-	return f.conn.QueryRowPartial(v, query, args...)
-}
-
-func (f *followerSqlConn) QueryRowPartialCtx(ctx context.Context, v any, query string, args ...any) error {
-	return f.conn.QueryRowPartialCtx(ctx, v, query, args...)
-}
-
-func (f *followerSqlConn) QueryRows(v any, query string, args ...any) error {
-	return f.conn.QueryRows(v, query, args...)
-}
-
-func (f *followerSqlConn) QueryRowsCtx(ctx context.Context, v any, query string, args ...any) error {
-	return f.conn.QueryRowsCtx(ctx, v, query, args...)
-}
-
-func (f *followerSqlConn) QueryRowsPartial(v any, query string, args ...any) error {
-	return f.conn.QueryRowsPartial(v, query, args...)
-}
-
-func (f *followerSqlConn) QueryRowsPartialCtx(ctx context.Context, v any, query string, args ...any) error {
-	return f.conn.QueryRowsPartialCtx(ctx, v, query, args...)
-}
-
-func (f *followerSqlConn) Exec(_ string, _ ...any) (sql.Result, error) {
-	return nil, ErrNotSupport
-}
-
-func (f *followerSqlConn) ExecCtx(_ context.Context, _ string, _ ...any) (sql.Result, error) {
-	return nil, ErrNotSupport
-}
-
-func (f *followerSqlConn) Prepare(_ string) (sqlx.StmtSession, error) {
-	return nil, ErrNotSupport
-}
-
-func (f *followerSqlConn) PrepareCtx(_ context.Context, _ string) (sqlx.StmtSession, error) {
-	return nil, ErrNotSupport
-}
-
-func (f *followerSqlConn) RawDB() (*sql.DB, error) {
-	return f.conn.RawDB()
-}
-
-func (f *followerSqlConn) Transact(_ func(sqlx.Session) error) error {
-	return ErrNotSupport
-}
-
-func (f *followerSqlConn) TransactCtx(_ context.Context, _ func(context.Context, sqlx.Session) error) error {
-	return ErrNotSupport
-}
-
-// -------------
-
+//
+//	func (f *followerSqlConn) QueryRow(v any, query string, args ...any) error {
+//		return f.conn.QueryRow(v, query, args...)
+//	}
+//
+//	func (f *followerSqlConn) QueryRowCtx(ctx context.Context, v any, query string, args ...any) error {
+//		return f.conn.QueryRowCtx(ctx, v, query, args...)
+//	}
+//
+//	func (f *followerSqlConn) QueryRowPartial(v any, query string, args ...any) error {
+//		return f.conn.QueryRowPartial(v, query, args...)
+//	}
+//
+//	func (f *followerSqlConn) QueryRowPartialCtx(ctx context.Context, v any, query string, args ...any) error {
+//		return f.conn.QueryRowPartialCtx(ctx, v, query, args...)
+//	}
+//
+//	func (f *followerSqlConn) QueryRows(v any, query string, args ...any) error {
+//		return f.conn.QueryRows(v, query, args...)
+//	}
+//
+//	func (f *followerSqlConn) QueryRowsCtx(ctx context.Context, v any, query string, args ...any) error {
+//		return f.conn.QueryRowsCtx(ctx, v, query, args...)
+//	}
+//
+//	func (f *followerSqlConn) QueryRowsPartial(v any, query string, args ...any) error {
+//		return f.conn.QueryRowsPartial(v, query, args...)
+//	}
+//
+//	func (f *followerSqlConn) QueryRowsPartialCtx(ctx context.Context, v any, query string, args ...any) error {
+//		return f.conn.QueryRowsPartialCtx(ctx, v, query, args...)
+//	}
+//
+//	func (f *followerSqlConn) Exec(_ string, _ ...any) (sql.Result, error) {
+//		return nil, ErrNotSupport
+//	}
+//
+//	func (f *followerSqlConn) ExecCtx(_ context.Context, _ string, _ ...any) (sql.Result, error) {
+//		return nil, ErrNotSupport
+//	}
+//
+//	func (f *followerSqlConn) Prepare(_ string) (sqlx.StmtSession, error) {
+//		return nil, ErrNotSupport
+//	}
+//
+//	func (f *followerSqlConn) PrepareCtx(_ context.Context, _ string) (sqlx.StmtSession, error) {
+//		return nil, ErrNotSupport
+//	}
+//
+//	func (f *followerSqlConn) RawDB() (*sql.DB, error) {
+//		return f.conn.RawDB()
+//	}
+//
+//	func (f *followerSqlConn) Transact(_ func(sqlx.Session) error) error {
+//		return ErrNotSupport
+//	}
+//
+//	func (f *followerSqlConn) TransactCtx(_ context.Context, _ func(context.Context, sqlx.Session) error) error {
+//		return ErrNotSupport
+//	}
+//
+// // -------------
 func pingDB(conn sqlx.SqlConn) error {
 	return pingCtxDB(context.Background(), conn)
 }
