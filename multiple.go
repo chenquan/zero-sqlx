@@ -52,10 +52,13 @@ func NewMultipleSqlConn(driverName string, conf DBConf, opts ...SqlOption) sqlx.
 		followers:      followers,
 		conf:           conf,
 	}
+  
 	for _, opt := range opts {
 		opt(conn)
 	}
-	conn.p2cPicker.Store(newP2cPicker(followers, conn.accept))
+
+  conn.p2cPicker.Store(newP2cPicker(followers, conn.accept))
+
 
 	ctx, cancelFunc := context.WithCancel(context.Background())
 	proc.AddShutdownListener(func() {
@@ -153,7 +156,7 @@ func (m *multipleSqlConn) getQueryDB(query string) queryDB {
 	if !m.enableFollower {
 		return queryDB{conn: m.leader}
 	}
-
+ 
 	if !m.containSelect(query) {
 		return queryDB{conn: m.leader}
 	}
