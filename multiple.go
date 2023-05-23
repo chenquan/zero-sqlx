@@ -19,8 +19,8 @@ type (
 		Leader    string
 		Followers []string `json:",optional"`
 		// BackLeader back to Leader when all Followers are not available.
-		BackLeader bool          `json:",optional"`
-		Heartbeat  time.Duration `json:",default=60s"`
+		BackLeader        bool          `json:",optional"`
+		FollowerHeartbeat time.Duration `json:",default=60s"`
 	}
 
 	SqlOption func(*multipleSqlConn)
@@ -60,7 +60,10 @@ func NewMultipleSqlConn(driverName string, conf DBConf, opts ...SqlOption) sqlx.
 	proc.AddShutdownListener(func() {
 		cancelFunc()
 	})
-	go conn.startHeartbeat(ctx)
+
+	if conn.enableFollower {
+		go conn.startFollowerHeartbeat(ctx)
+	}
 
 	return conn
 }
@@ -187,8 +190,8 @@ func (m *multipleSqlConn) heartbeat() {
 	m.p2cPicker.Store(newP2cPicker(conns, m.accept))
 }
 
-func (m *multipleSqlConn) startHeartbeat(ctx context.Context) {
-	ticker := time.NewTicker(m.conf.Heartbeat)
+func (m *multipleSqlConn) startFollowerHeartbeat(ctx context.Context) {
+	ticker := time.NewTicker(m.conf.FollowerHeartbeat)
 	for {
 		select {
 		case <-ctx.Done():
