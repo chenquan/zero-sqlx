@@ -4,7 +4,7 @@ go 1.18
 
 require (
 	github.com/DATA-DOG/go-sqlmock v1.5.0
-	github.com/stretchr/testify v1.8.2
+	github.com/stretchr/testify v1.8.3
 	github.com/zeromicro/go-zero v1.5.2
 )
 
