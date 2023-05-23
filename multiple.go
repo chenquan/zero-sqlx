@@ -177,10 +177,11 @@ func (m *multipleSqlConn) getQueryDB(query string) queryDB {
 
 func (m *multipleSqlConn) heartbeat() {
 	conns := make([]sqlx.SqlConn, 0, len(m.followers))
-	for _, follower := range m.followers {
+	for i, follower := range m.followers {
 		err := pingDB(follower)
 		if err != nil {
-			logx.Error(err)
+			logx.Errorw("follower db heartbeat failure, it will be automatically removed", logx.Field("err", err), logx.Field("db", i))
+
 			continue
 		}
 
