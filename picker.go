@@ -173,7 +173,7 @@ func (p *p2cPicker) logStats() {
 			conn.db, conn.load(), atomic.SwapInt64(&conn.requests, 0)))
 	}
 
-	logx.Statf("follower-db - p2c - %s", strings.Join(stats, "; "))
+	logx.Statf("follower db - p2c - %s", strings.Join(stats, "; "))
 }
 
 type subConn struct {
