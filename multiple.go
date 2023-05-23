@@ -180,8 +180,8 @@ func (m *multipleSqlConn) heartbeat() {
 	for i, follower := range m.followers {
 		err := pingDB(follower)
 		if err != nil {
-
 			logx.Errorw("follower database heartbeat failed", logx.Field("err", err), logx.Field("db", i))
+
 			continue
 		}
 
