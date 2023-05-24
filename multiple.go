@@ -10,6 +10,18 @@ import (
 	"github.com/zeromicro/go-zero/core/logx"
 	"github.com/zeromicro/go-zero/core/proc"
 	"github.com/zeromicro/go-zero/core/stores/sqlx"
+	"github.com/zeromicro/go-zero/core/trace"
+	"go.opentelemetry.io/otel/attribute"
+	oteltrace "go.opentelemetry.io/otel/trace"
+)
+
+const spanName = "multipleSql"
+
+var DBTypeAttributeKey = attribute.Key("multipleSql.leader")
+var followerDBSqlAttributeKey = attribute.Key("multipleSql.follower")
+var (
+	leaderTypeAttributeKey   = DBTypeAttributeKey.String("leader")
+	followerTypeAttributeKey = DBTypeAttributeKey.String("follower")
 )
 
 var _ sqlx.SqlConn = (*multipleSqlConn)(nil)
@@ -73,6 +85,8 @@ func (m *multipleSqlConn) Exec(query string, args ...any) (sql.Result, error) {
 }
 
 func (m *multipleSqlConn) ExecCtx(ctx context.Context, query string, args ...any) (sql.Result, error) {
+	ctx, span := startSpanWithLeader(ctx)
+	defer span.End()
 	return m.leader.ExecCtx(ctx, query, args...)
 }
 
@@ -81,6 +95,8 @@ func (m *multipleSqlConn) Prepare(query string) (sqlx.StmtSession, error) {
 }
 
 func (m *multipleSqlConn) PrepareCtx(ctx context.Context, query string) (sqlx.StmtSession, error) {
+	ctx, span := startSpanWithLeader(ctx)
+	defer span.End()
 	return m.leader.PrepareCtx(ctx, query)
 }
 
@@ -89,7 +105,8 @@ func (m *multipleSqlConn) QueryRow(v any, query string, args ...any) error {
 }
 
 func (m *multipleSqlConn) QueryRowCtx(ctx context.Context, v any, query string, args ...any) error {
-	db := m.getQueryDB(query)
+	db := m.getQueryDB(ctx, query)
+
 	return db.query(func(conn sqlx.SqlConn) error {
 		return conn.QueryRowCtx(ctx, v, query, args...)
 	})
@@ -100,7 +117,7 @@ func (m *multipleSqlConn) QueryRowPartial(v any, query string, args ...any) erro
 }
 
 func (m *multipleSqlConn) QueryRowPartialCtx(ctx context.Context, v any, query string, args ...any) error {
-	db := m.getQueryDB(query)
+	db := m.getQueryDB(ctx, query)
 	return db.query(func(conn sqlx.SqlConn) error {
 		return conn.QueryRowPartialCtx(ctx, v, query, args...)
 	})
@@ -111,7 +128,7 @@ func (m *multipleSqlConn) QueryRows(v any, query string, args ...any) error {
 }
 
 func (m *multipleSqlConn) QueryRowsCtx(ctx context.Context, v any, query string, args ...any) error {
-	db := m.getQueryDB(query)
+	db := m.getQueryDB(ctx, query)
 	return db.query(func(conn sqlx.SqlConn) error {
 		return conn.QueryRowsCtx(ctx, v, query, args...)
 	})
@@ -122,7 +139,7 @@ func (m *multipleSqlConn) QueryRowsPartial(v any, query string, args ...any) err
 }
 
 func (m *multipleSqlConn) QueryRowsPartialCtx(ctx context.Context, v any, query string, args ...any) error {
-	db := m.getQueryDB(query)
+	db := m.getQueryDB(ctx, query)
 	return db.query(func(conn sqlx.SqlConn) error {
 		return conn.QueryRowsPartialCtx(ctx, v, query, args...)
 	})
@@ -139,6 +156,8 @@ func (m *multipleSqlConn) Transact(fn func(sqlx.Session) error) error {
 }
 
 func (m *multipleSqlConn) TransactCtx(ctx context.Context, fn func(context.Context, sqlx.Session) error) error {
+	ctx, span := startSpanWithLeader(ctx)
+	defer span.End()
 	return m.leader.TransactCtx(ctx, fn)
 }
 
@@ -151,20 +170,31 @@ func (m *multipleSqlConn) containSelect(query string) bool {
 	return false
 }
 
-func (m *multipleSqlConn) getQueryDB(query string) queryDB {
+func (m *multipleSqlConn) getQueryDB(ctx context.Context, query string) (db queryDB) {
+	defer func() {
+		var span oteltrace.Span
+		if db.leader {
+			ctx, span = startSpanWithLeader(ctx)
+		} else {
+			ctx, span = startSpanWithFollower(ctx, db.followerDB)
+		}
+		defer span.End()
+	}()
+
 	if !m.enableFollower {
-		return queryDB{conn: m.leader}
+		return queryDB{conn: m.leader, leader: true}
 	}
 
 	if !m.containSelect(query) {
-		return queryDB{conn: m.leader}
+		return queryDB{conn: m.leader, leader: true}
 	}
 
 	result, err := m.p2cPicker.Load().(picker).pick()
 	if err == nil {
 		return queryDB{
-			conn: result.conn,
-			done: result.done,
+			conn:       result.conn,
+			done:       result.done,
+			followerDB: result.followerDB,
 		}
 	}
 
@@ -172,7 +202,7 @@ func (m *multipleSqlConn) getQueryDB(query string) queryDB {
 		return queryDB{error: err}
 	}
 
-	return queryDB{conn: m.leader}
+	return queryDB{conn: m.leader, leader: true}
 }
 
 func (m *multipleSqlConn) heartbeat() {
@@ -203,12 +233,33 @@ func (m *multipleSqlConn) startFollowerHeartbeat(ctx context.Context) {
 	}
 }
 
+func startSpan(ctx context.Context) (context.Context, oteltrace.Span) {
+	tracer := trace.TracerFromContext(ctx)
+	ctx, span := tracer.Start(ctx, spanName, oteltrace.WithSpanKind(oteltrace.SpanKindClient))
+	return ctx, span
+}
+
+func startSpanWithLeader(ctx context.Context) (context.Context, oteltrace.Span) {
+	ctx, span := startSpan(ctx)
+	span.SetAttributes(leaderTypeAttributeKey)
+	return ctx, span
+}
+
+func startSpanWithFollower(ctx context.Context, db int) (context.Context, oteltrace.Span) {
+	ctx, span := startSpan(ctx)
+	span.SetAttributes(followerTypeAttributeKey)
+	span.SetAttributes(followerDBSqlAttributeKey.Int(db))
+	return ctx, span
+}
+
 // -------------
 
 type queryDB struct {
-	conn  sqlx.SqlConn
-	error error
-	done  func(err error)
+	conn       sqlx.SqlConn
+	error      error
+	done       func(err error)
+	leader     bool
+	followerDB int
 }
 
 func (q *queryDB) query(query func(conn sqlx.SqlConn) error) (err error) {
