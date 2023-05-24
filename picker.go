@@ -35,8 +35,9 @@ type (
 		pick() (*pickResult, error)
 	}
 	pickResult struct {
-		conn sqlx.SqlConn
-		done func(err error)
+		conn       sqlx.SqlConn
+		done       func(err error)
+		followerDB int
 	}
 	p2cPicker struct {
 		conns  []*subConn
@@ -99,8 +100,9 @@ func (p *p2cPicker) pick() (*pickResult, error) {
 	atomic.AddInt64(&chosen.requests, 1)
 
 	return &pickResult{
-		conn: chosen.conn,
-		done: p.buildDoneFunc(chosen),
+		conn:       chosen.conn,
+		done:       p.buildDoneFunc(chosen),
+		followerDB: chosen.db,
 	}, nil
 }
 
