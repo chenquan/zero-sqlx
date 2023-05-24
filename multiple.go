@@ -18,7 +18,7 @@ import (
 const spanName = "multipleSql"
 
 var DBTypeAttributeKey = attribute.Key("multipleSql.leader")
-var followerDBSqlAttributeKey = attribute.Key("multipleSql.followerDB")
+var followerDBSqlAttributeKey = attribute.Key("multipleSql.follower_db")
 var (
 	leaderTypeAttributeKey   = DBTypeAttributeKey.String("leader")
 	followerTypeAttributeKey = DBTypeAttributeKey.String("follower")
