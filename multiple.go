@@ -17,11 +17,12 @@ import (
 
 const spanName = "multipleSql"
 
-var DBTypeAttributeKey = attribute.Key("multipleSql.leader")
-var followerDBSqlAttributeKey = attribute.Key("multipleSql.follower_db")
 var (
-	leaderTypeAttributeKey   = DBTypeAttributeKey.String("leader")
-	followerTypeAttributeKey = DBTypeAttributeKey.String("follower")
+	DBTypeAttributeKey        = attribute.Key("multiple_sql.type")
+	followerDBSqlAttributeKey = attribute.Key("multiple_sql.follower_db")
+	leaderTypeAttributeKey    = DBTypeAttributeKey.String("leader")
+	followerTypeAttributeKey  = DBTypeAttributeKey.String("follower")
+	sqlDriverAttributeKey     = attribute.Key("sql.driver")
 )
 
 var _ sqlx.SqlConn = (*multipleSqlConn)(nil)
@@ -44,6 +45,7 @@ type (
 		followers      []sqlx.SqlConn
 		conf           DBConf
 		accept         func(error) bool
+		driveName      string
 	}
 )
 
@@ -60,6 +62,7 @@ func NewMultipleSqlConn(driverName string, conf DBConf, opts ...SqlOption) sqlx.
 		enableFollower: len(followers) != 0,
 		followers:      followers,
 		conf:           conf,
+		driveName:      driverName,
 	}
 
 	for _, opt := range opts {
@@ -85,7 +88,7 @@ func (m *multipleSqlConn) Exec(query string, args ...any) (sql.Result, error) {
 }
 
 func (m *multipleSqlConn) ExecCtx(ctx context.Context, query string, args ...any) (sql.Result, error) {
-	ctx, span := startSpanWithLeader(ctx)
+	ctx, span := m.startSpanWithLeader(ctx)
 	defer span.End()
 	return m.leader.ExecCtx(ctx, query, args...)
 }
@@ -95,7 +98,7 @@ func (m *multipleSqlConn) Prepare(query string) (sqlx.StmtSession, error) {
 }
 
 func (m *multipleSqlConn) PrepareCtx(ctx context.Context, query string) (sqlx.StmtSession, error) {
-	ctx, span := startSpanWithLeader(ctx)
+	ctx, span := m.startSpanWithLeader(ctx)
 	defer span.End()
 	return m.leader.PrepareCtx(ctx, query)
 }
@@ -108,9 +111,9 @@ func (m *multipleSqlConn) QueryRowCtx(ctx context.Context, v any, query string, 
 	db := m.getQueryDB(query)
 	var span oteltrace.Span
 	if db.leader {
-		ctx, span = startSpanWithLeader(ctx)
+		ctx, span = m.startSpanWithLeader(ctx)
 	} else {
-		ctx, span = startSpanWithFollower(ctx, db.followerDB)
+		ctx, span = m.startSpanWithFollower(ctx, db.followerDB)
 	}
 	defer span.End()
 
@@ -127,9 +130,9 @@ func (m *multipleSqlConn) QueryRowPartialCtx(ctx context.Context, v any, query s
 	db := m.getQueryDB(query)
 	var span oteltrace.Span
 	if db.leader {
-		ctx, span = startSpanWithLeader(ctx)
+		ctx, span = m.startSpanWithLeader(ctx)
 	} else {
-		ctx, span = startSpanWithFollower(ctx, db.followerDB)
+		ctx, span = m.startSpanWithFollower(ctx, db.followerDB)
 	}
 	defer span.End()
 
@@ -146,9 +149,9 @@ func (m *multipleSqlConn) QueryRowsCtx(ctx context.Context, v any, query string,
 	db := m.getQueryDB(query)
 	var span oteltrace.Span
 	if db.leader {
-		ctx, span = startSpanWithLeader(ctx)
+		ctx, span = m.startSpanWithLeader(ctx)
 	} else {
-		ctx, span = startSpanWithFollower(ctx, db.followerDB)
+		ctx, span = m.startSpanWithFollower(ctx, db.followerDB)
 	}
 	defer span.End()
 
@@ -165,9 +168,9 @@ func (m *multipleSqlConn) QueryRowsPartialCtx(ctx context.Context, v any, query 
 	db := m.getQueryDB(query)
 	var span oteltrace.Span
 	if db.leader {
-		ctx, span = startSpanWithLeader(ctx)
+		ctx, span = m.startSpanWithLeader(ctx)
 	} else {
-		ctx, span = startSpanWithFollower(ctx, db.followerDB)
+		ctx, span = m.startSpanWithFollower(ctx, db.followerDB)
 	}
 	defer span.End()
 
@@ -187,7 +190,7 @@ func (m *multipleSqlConn) Transact(fn func(sqlx.Session) error) error {
 }
 
 func (m *multipleSqlConn) TransactCtx(ctx context.Context, fn func(context.Context, sqlx.Session) error) error {
-	ctx, span := startSpanWithLeader(ctx)
+	ctx, span := m.startSpanWithLeader(ctx)
 	defer span.End()
 	return m.leader.TransactCtx(ctx, fn)
 }
@@ -254,20 +257,21 @@ func (m *multipleSqlConn) startFollowerHeartbeat(ctx context.Context) {
 	}
 }
 
-func startSpan(ctx context.Context) (context.Context, oteltrace.Span) {
+func (m *multipleSqlConn) startSpan(ctx context.Context) (context.Context, oteltrace.Span) {
 	tracer := trace.TracerFromContext(ctx)
 	ctx, span := tracer.Start(ctx, spanName, oteltrace.WithSpanKind(oteltrace.SpanKindClient))
+	span.SetAttributes(sqlDriverAttributeKey.String(m.driveName))
 	return ctx, span
 }
 
-func startSpanWithLeader(ctx context.Context) (context.Context, oteltrace.Span) {
-	ctx, span := startSpan(ctx)
+func (m *multipleSqlConn) startSpanWithLeader(ctx context.Context) (context.Context, oteltrace.Span) {
+	ctx, span := m.startSpan(ctx)
 	span.SetAttributes(leaderTypeAttributeKey)
 	return ctx, span
 }
 
-func startSpanWithFollower(ctx context.Context, db int) (context.Context, oteltrace.Span) {
-	ctx, span := startSpan(ctx)
+func (m *multipleSqlConn) startSpanWithFollower(ctx context.Context, db int) (context.Context, oteltrace.Span) {
+	ctx, span := m.startSpan(ctx)
 	span.SetAttributes(followerTypeAttributeKey)
 	span.SetAttributes(followerDBSqlAttributeKey.Int(db))
 	return ctx, span
