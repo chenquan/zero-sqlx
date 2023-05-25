@@ -18,10 +18,10 @@ import (
 const spanName = "multipleSql"
 
 var (
-	DBTypeAttributeKey        = attribute.Key("multiple_sql.type")
+	dbTypeAttributeKey        = attribute.Key("multiple_sql.type")
 	followerDBSqlAttributeKey = attribute.Key("multiple_sql.follower_db")
-	leaderTypeAttributeKey    = DBTypeAttributeKey.String("leader")
-	followerTypeAttributeKey  = DBTypeAttributeKey.String("follower")
+	leaderTypeAttributeKey    = dbTypeAttributeKey.String("leader")
+	followerTypeAttributeKey  = dbTypeAttributeKey.String("follower")
 	sqlDriverAttributeKey     = attribute.Key("sql.driver")
 )
 
