@@ -241,7 +241,7 @@ func (m *multipleSqlConn) startSpanWithFollower(ctx context.Context, db int) (co
 	return ctx, span
 }
 
-func (m *multipleSqlConn) query(ctx context.Context, query string, queryFunc func(conn sqlx.SqlConn) error) error {
+func (m *multipleSqlConn) query(ctx context.Context, query string, do func(conn sqlx.SqlConn) error) error {
 	db := m.getQueryDB(query)
 	var span oteltrace.Span
 	if db.leader {
@@ -251,7 +251,7 @@ func (m *multipleSqlConn) query(ctx context.Context, query string, queryFunc fun
 	}
 	defer span.End()
 
-	return db.query(queryFunc)
+	return db.query(do)
 }
 
 // -------------
