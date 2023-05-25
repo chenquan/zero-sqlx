@@ -107,16 +107,7 @@ func (m *multipleSqlConn) QueryRow(v any, query string, args ...any) error {
 }
 
 func (m *multipleSqlConn) QueryRowCtx(ctx context.Context, v any, query string, args ...any) error {
-	db := m.getQueryDB(query)
-	var span oteltrace.Span
-	if db.leader {
-		ctx, span = m.startSpanWithLeader(ctx)
-	} else {
-		ctx, span = m.startSpanWithFollower(ctx, db.followerDB)
-	}
-	defer span.End()
-
-	return db.query(func(conn sqlx.SqlConn) error {
+	return m.query(ctx, query, func(conn sqlx.SqlConn) error {
 		return conn.QueryRowCtx(ctx, v, query, args...)
 	})
 }
@@ -126,16 +117,8 @@ func (m *multipleSqlConn) QueryRowPartial(v any, query string, args ...any) erro
 }
 
 func (m *multipleSqlConn) QueryRowPartialCtx(ctx context.Context, v any, query string, args ...any) error {
-	db := m.getQueryDB(query)
-	var span oteltrace.Span
-	if db.leader {
-		ctx, span = m.startSpanWithLeader(ctx)
-	} else {
-		ctx, span = m.startSpanWithFollower(ctx, db.followerDB)
-	}
-	defer span.End()
 
-	return db.query(func(conn sqlx.SqlConn) error {
+	return m.query(ctx, query, func(conn sqlx.SqlConn) error {
 		return conn.QueryRowPartialCtx(ctx, v, query, args...)
 	})
 }
@@ -145,16 +128,7 @@ func (m *multipleSqlConn) QueryRows(v any, query string, args ...any) error {
 }
 
 func (m *multipleSqlConn) QueryRowsCtx(ctx context.Context, v any, query string, args ...any) error {
-	db := m.getQueryDB(query)
-	var span oteltrace.Span
-	if db.leader {
-		ctx, span = m.startSpanWithLeader(ctx)
-	} else {
-		ctx, span = m.startSpanWithFollower(ctx, db.followerDB)
-	}
-	defer span.End()
-
-	return db.query(func(conn sqlx.SqlConn) error {
+	return m.query(ctx, query, func(conn sqlx.SqlConn) error {
 		return conn.QueryRowsCtx(ctx, v, query, args...)
 	})
 }
@@ -164,16 +138,7 @@ func (m *multipleSqlConn) QueryRowsPartial(v any, query string, args ...any) err
 }
 
 func (m *multipleSqlConn) QueryRowsPartialCtx(ctx context.Context, v any, query string, args ...any) error {
-	db := m.getQueryDB(query)
-	var span oteltrace.Span
-	if db.leader {
-		ctx, span = m.startSpanWithLeader(ctx)
-	} else {
-		ctx, span = m.startSpanWithFollower(ctx, db.followerDB)
-	}
-	defer span.End()
-
-	return db.query(func(conn sqlx.SqlConn) error {
+	return m.query(ctx, query, func(conn sqlx.SqlConn) error {
 		return conn.QueryRowsPartialCtx(ctx, v, query, args...)
 	})
 }
@@ -274,6 +239,19 @@ func (m *multipleSqlConn) startSpanWithFollower(ctx context.Context, db int) (co
 	span.SetAttributes(followerTypeAttributeKey)
 	span.SetAttributes(followerDBSqlAttributeKey.Int(db))
 	return ctx, span
+}
+
+func (m *multipleSqlConn) query(ctx context.Context, query string, queryFunc func(conn sqlx.SqlConn) error) error {
+	db := m.getQueryDB(query)
+	var span oteltrace.Span
+	if db.leader {
+		ctx, span = m.startSpanWithLeader(ctx)
+	} else {
+		ctx, span = m.startSpanWithFollower(ctx, db.followerDB)
+	}
+	defer span.End()
+
+	return db.query(queryFunc)
 }
 
 // -------------
