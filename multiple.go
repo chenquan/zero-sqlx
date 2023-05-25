@@ -71,12 +71,11 @@ func NewMultipleSqlConn(driverName string, conf DBConf, opts ...SqlOption) sqlx.
 
 	conn.p2cPicker.Store(newP2cPicker(followers, conn.accept))
 
-	ctx, cancelFunc := context.WithCancel(context.Background())
-	proc.AddShutdownListener(func() {
-		cancelFunc()
-	})
-
 	if conn.enableFollower {
+		ctx, cancelFunc := context.WithCancel(context.Background())
+		proc.AddShutdownListener(func() {
+			cancelFunc()
+		})
 		go conn.startFollowerHeartbeat(ctx)
 	}
 
