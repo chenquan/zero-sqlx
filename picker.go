@@ -49,7 +49,7 @@ type (
 )
 
 func newP2cPicker(followers []sqlx.SqlConn, accept func(err error) bool) *p2cPicker {
-	var conns []*subConn
+	conns := make([]*subConn, 0, len(followers))
 	for i, follower := range followers {
 		conns = append(conns, &subConn{
 			success: initSuccess,
@@ -165,11 +165,9 @@ func (p *p2cPicker) choose(c1, c2 *subConn) *subConn {
 }
 
 func (p *p2cPicker) logStats() {
-	var stats []string
-
 	p.lock.Lock()
 	defer p.lock.Unlock()
-
+	stats := make([]string, 0, len(p.conns))
 	for _, conn := range p.conns {
 		stats = append(stats, fmt.Sprintf("db: %d, load: %d, reqs: %d",
 			conn.db, conn.load(), atomic.SwapInt64(&conn.requests, 0)))

@@ -170,11 +170,11 @@ func (m *multipleSqlConn) containSelect(query string) bool {
 
 func (m *multipleSqlConn) getQueryDB(query string) queryDB {
 	if !m.enableFollower {
-		return queryDB{conn: m.leader, leader: true}
+		return queryDB{conn: m.leader}
 	}
 
 	if !m.containSelect(query) {
-		return queryDB{conn: m.leader, leader: true}
+		return queryDB{conn: m.leader}
 	}
 
 	result, err := m.p2cPicker.Load().(picker).pick()
@@ -183,6 +183,7 @@ func (m *multipleSqlConn) getQueryDB(query string) queryDB {
 			conn:       result.conn,
 			done:       result.done,
 			followerDB: result.followerDB,
+			follower:   true,
 		}
 	}
 
@@ -190,7 +191,7 @@ func (m *multipleSqlConn) getQueryDB(query string) queryDB {
 		return queryDB{error: err}
 	}
 
-	return queryDB{conn: m.leader, leader: true}
+	return queryDB{conn: m.leader}
 }
 
 func (m *multipleSqlConn) heartbeat() {
@@ -244,10 +245,10 @@ func (m *multipleSqlConn) startSpanWithFollower(ctx context.Context, db int) (co
 func (m *multipleSqlConn) query(ctx context.Context, query string, do func(ctx context.Context, conn sqlx.SqlConn) error) error {
 	db := m.getQueryDB(query)
 	var span oteltrace.Span
-	if db.leader {
-		ctx, span = m.startSpanWithLeader(ctx)
-	} else {
+	if db.follower {
 		ctx, span = m.startSpanWithFollower(ctx, db.followerDB)
+	} else {
+		ctx, span = m.startSpanWithLeader(ctx)
 	}
 	defer span.End()
 
@@ -260,7 +261,7 @@ type queryDB struct {
 	conn       sqlx.SqlConn
 	error      error
 	done       func(err error)
-	leader     bool
+	follower   bool
 	followerDB int
 }
 
