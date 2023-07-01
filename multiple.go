@@ -117,7 +117,6 @@ func (m *multipleSqlConn) QueryRowPartial(v any, query string, args ...any) erro
 }
 
 func (m *multipleSqlConn) QueryRowPartialCtx(ctx context.Context, v any, query string, args ...any) error {
-
 	return m.query(ctx, query, func(ctx context.Context, conn sqlx.SqlConn) error {
 		return conn.QueryRowPartialCtx(ctx, v, query, args...)
 	})
