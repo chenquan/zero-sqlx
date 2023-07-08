@@ -1,6 +1,7 @@
 package sqlx
 
 import (
+	"context"
 	"database/sql/driver"
 	"testing"
 	"time"
@@ -51,4 +52,11 @@ func TestNewMultipleSqlConn(t *testing.T) {
 	rowsAffected, err := r.RowsAffected()
 	assert.NoError(t, err)
 	assert.Equal(t, int64(1), rowsAffected)
+}
+
+func TestForceLeaderContext(t *testing.T) {
+	ctx := ForceLeaderContext(context.Background())
+	assert.True(t, forceLeaderFromContext(ctx))
+
+	assert.False(t, forceLeaderFromContext(context.Background()))
 }

@@ -167,7 +167,11 @@ func (m *multipleSqlConn) containSelect(query string) bool {
 	return false
 }
 
-func (m *multipleSqlConn) getQueryDB(query string) queryDB {
+func (m *multipleSqlConn) getQueryDB(ctx context.Context, query string) queryDB {
+	if forceLeaderFromContext(ctx) {
+		return queryDB{conn: m.leader}
+	}
+
 	if !m.enableFollower {
 		return queryDB{conn: m.leader}
 	}
@@ -242,7 +246,7 @@ func (m *multipleSqlConn) startSpanWithFollower(ctx context.Context, db int) (co
 }
 
 func (m *multipleSqlConn) query(ctx context.Context, query string, do func(ctx context.Context, conn sqlx.SqlConn) error) error {
-	db := m.getQueryDB(query)
+	db := m.getQueryDB(ctx, query)
 	var span oteltrace.Span
 	if db.follower {
 		ctx, span = m.startSpanWithFollower(ctx, db.followerDB)
@@ -296,4 +300,16 @@ func WithAccept(accept func(err error) bool) SqlOption {
 	return func(conn *multipleSqlConn) {
 		conn.accept = accept
 	}
+}
+
+type forceLeaderKey struct{}
+
+func ForceLeaderContext(ctx context.Context) context.Context {
+	return context.WithValue(ctx, forceLeaderKey{}, struct{}{})
+}
+
+func forceLeaderFromContext(ctx context.Context) bool {
+	value := ctx.Value(forceLeaderKey{})
+	_, ok := value.(struct{})
+	return ok
 }
