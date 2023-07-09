@@ -16,14 +16,6 @@ go get github.com/chenquan/zero-sqlx
 - Adaptive circuit breaker
 - P2c algorithm
 
-## features
-
-- Full tracing
-- Read and write separation
-- Allows specified leader db execution
-- Adaptive circuit breaker
-- P2c algorithm
-
 ## how to use it
 
 ```yaml
@@ -36,7 +28,7 @@ DB:
 
 ```go
 type Config struct{
-  DB DBConf
+DB DBConf
 }
 ```
 
