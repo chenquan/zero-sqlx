@@ -25,10 +25,8 @@ func TestNewMultipleSqlConn(t *testing.T) {
 	leaderMock.ExpectPing().WillDelayFor(time.Millisecond)
 
 	mysql := NewMultipleSqlConn(mockedDatasource, DBConf{
-		Leader:            leader,
-		Followers:         []string{follower1},
-		BackLeader:        false,
-		FollowerHeartbeat: time.Minute,
+		Leader:    leader,
+		Followers: []string{follower1},
 	})
 
 	follower1Mock.ExpectExec("any")

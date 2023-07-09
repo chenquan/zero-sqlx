@@ -4,11 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"strings"
-	"sync/atomic"
-	"time"
 
-	"github.com/zeromicro/go-zero/core/logx"
-	"github.com/zeromicro/go-zero/core/proc"
 	"github.com/zeromicro/go-zero/core/stores/sqlx"
 	"github.com/zeromicro/go-zero/core/trace"
 	"go.opentelemetry.io/otel/attribute"
@@ -31,9 +27,6 @@ type (
 	DBConf struct {
 		Leader    string
 		Followers []string `json:",optional"`
-		// BackLeader back to Leader when all Followers are not available.
-		BackLeader        bool          `json:",optional"`
-		FollowerHeartbeat time.Duration `json:",default=60s"`
 	}
 
 	SqlOption func(*multipleSqlConn)
@@ -41,7 +34,7 @@ type (
 	multipleSqlConn struct {
 		leader         sqlx.SqlConn
 		enableFollower bool
-		p2cPicker      atomic.Value // picker
+		p2cPicker      picker // picker
 		followers      []sqlx.SqlConn
 		conf           DBConf
 		accept         func(error) bool
@@ -69,15 +62,7 @@ func NewMultipleSqlConn(driverName string, conf DBConf, opts ...SqlOption) sqlx.
 		opt(conn)
 	}
 
-	conn.p2cPicker.Store(newP2cPicker(followers, conn.accept))
-
-	if conn.enableFollower {
-		ctx, cancelFunc := context.WithCancel(context.Background())
-		proc.AddShutdownListener(func() {
-			cancelFunc()
-		})
-		go conn.startFollowerHeartbeat(ctx)
-	}
+	conn.p2cPicker = newP2cPicker(followers, conn.accept)
 
 	return conn
 }
@@ -180,7 +165,7 @@ func (m *multipleSqlConn) getQueryDB(ctx context.Context, query string) queryDB 
 		return queryDB{conn: m.leader}
 	}
 
-	result, err := m.p2cPicker.Load().(picker).pick()
+	result, err := m.p2cPicker.pick()
 	if err == nil {
 		return queryDB{
 			conn:       result.conn,
@@ -190,39 +175,7 @@ func (m *multipleSqlConn) getQueryDB(ctx context.Context, query string) queryDB 
 		}
 	}
 
-	if !m.conf.BackLeader {
-		return queryDB{error: err}
-	}
-
 	return queryDB{conn: m.leader}
-}
-
-func (m *multipleSqlConn) heartbeat() {
-	conns := make([]sqlx.SqlConn, 0, len(m.followers))
-	for i, follower := range m.followers {
-		err := pingDB(follower)
-		if err != nil {
-			logx.Errorw("follower db heartbeat failure, it will be automatically removed", logx.Field("err", err), logx.Field("db", i))
-
-			continue
-		}
-
-		conns = append(conns, follower)
-	}
-
-	m.p2cPicker.Store(newP2cPicker(conns, m.accept))
-}
-
-func (m *multipleSqlConn) startFollowerHeartbeat(ctx context.Context) {
-	ticker := time.NewTicker(m.conf.FollowerHeartbeat)
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			m.heartbeat()
-		}
-	}
 }
 
 func (m *multipleSqlConn) startSpan(ctx context.Context) (context.Context, oteltrace.Span) {
