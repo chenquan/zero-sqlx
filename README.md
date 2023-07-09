@@ -6,7 +6,14 @@ zero-sqlx supports leader-follower read-write separation.
 
 ```shell
 go get github.com/chenquan/zero-sqlx
-```
+
+## features
+
+- Full tracing
+- Read and write separation
+- Allows specified leader db execution
+- Adaptive circuit breaker
+- P2c algorithm
 
 ## how to use it
 
@@ -16,7 +23,6 @@ DB:
   Followers:
     - follower1
     - follower2
-  BackLeader: true
 ```
 
 ```go
