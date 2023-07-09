@@ -234,21 +234,6 @@ func (q *queryDB) query(ctx context.Context, query func(ctx context.Context, con
 	return query(ctx, q.conn)
 }
 
-func pingDB(conn sqlx.SqlConn) error {
-	return pingCtxDB(context.Background(), conn)
-}
-
-func pingCtxDB(ctx context.Context, conn sqlx.SqlConn) error {
-	db, err := conn.RawDB()
-	if err != nil {
-		return err
-	}
-
-	return db.PingContext(ctx)
-}
-
-// -------------
-
 func WithAccept(accept func(err error) bool) SqlOption {
 	return func(conn *multipleSqlConn) {
 		conn.accept = accept
