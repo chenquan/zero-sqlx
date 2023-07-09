@@ -6,8 +6,8 @@ require (
 	github.com/DATA-DOG/go-sqlmock v1.5.0
 	github.com/stretchr/testify v1.8.4
 	github.com/zeromicro/go-zero v1.5.3
-	go.opentelemetry.io/otel v1.14.0
-	go.opentelemetry.io/otel/trace v1.14.0
+	go.opentelemetry.io/otel v1.16.0
+	go.opentelemetry.io/otel/trace v1.16.0
 )
 
 require (
@@ -16,7 +16,7 @@ require (
 	github.com/cespare/xxhash/v2 v2.2.0 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/fatih/color v1.15.0 // indirect
-	github.com/go-logr/logr v1.2.3 // indirect
+	github.com/go-logr/logr v1.2.4 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/go-sql-driver/mysql v1.7.1 // indirect
 	github.com/golang/protobuf v1.5.3 // indirect
@@ -39,6 +39,7 @@ require (
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp v1.14.0 // indirect
 	go.opentelemetry.io/otel/exporters/stdout/stdouttrace v1.14.0 // indirect
 	go.opentelemetry.io/otel/exporters/zipkin v1.14.0 // indirect
+	go.opentelemetry.io/otel/metric v1.16.0 // indirect
 	go.opentelemetry.io/otel/sdk v1.14.0 // indirect
 	go.opentelemetry.io/proto/otlp v0.19.0 // indirect
 	go.uber.org/automaxprocs v1.5.2 // indirect
