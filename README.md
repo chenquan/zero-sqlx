@@ -6,6 +6,7 @@ zero-sqlx supports leader-follower read-write separation.
 
 ```shell
 go get github.com/chenquan/zero-sqlx
+```
 
 ## features
 
