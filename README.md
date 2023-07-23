@@ -28,7 +28,7 @@ DB:
 
 ```go
 type Config struct{
-DB DBConf
+  DB DBConf
 }
 ```
 
