@@ -71,7 +71,7 @@ func NewMultipleSqlConn(driverName string, conf DBConf, opts ...SqlOption) sqlx.
 	leader := sqlx.NewSqlConn(driverName, conf.Leader, sqlx.WithAcceptable(sqlOpt.accept))
 	followers := make([]sqlx.SqlConn, 0, len(conf.Followers))
 	for _, datasource := range conf.Followers {
-		followers = append(followers, sqlx.NewSqlConn(driverName, datasource))
+		followers = append(followers, sqlx.NewSqlConn(driverName, datasource, sqlx.WithAcceptable(sqlOpt.accept)))
 	}
 
 	conn := &multipleSqlConn{
