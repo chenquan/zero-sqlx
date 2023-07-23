@@ -45,8 +45,11 @@ type (
 		Followers []string `json:",optional"`
 	}
 
-	SqlOption func(*multipleSqlConn)
+	SqlOption func(*sqlOptions)
 
+	sqlOptions struct {
+		accept func(error) bool
+	}
 	multipleSqlConn struct {
 		leader         sqlx.SqlConn
 		enableFollower bool
@@ -60,10 +63,15 @@ type (
 
 // NewMultipleSqlConn returns a SqlConn that supports leader-follower read/write separation.
 func NewMultipleSqlConn(driverName string, conf DBConf, opts ...SqlOption) sqlx.SqlConn {
-	leader := sqlx.NewSqlConn(driverName, conf.Leader)
+	var sqlOpt sqlOptions
+	for _, opt := range opts {
+		opt(&sqlOpt)
+	}
+
+	leader := sqlx.NewSqlConn(driverName, conf.Leader, sqlx.WithAcceptable(sqlOpt.accept))
 	followers := make([]sqlx.SqlConn, 0, len(conf.Followers))
 	for _, datasource := range conf.Followers {
-		followers = append(followers, sqlx.NewSqlConn(driverName, datasource))
+		followers = append(followers, sqlx.NewSqlConn(driverName, datasource, sqlx.WithAcceptable(sqlOpt.accept)))
 	}
 
 	conn := &multipleSqlConn{
@@ -72,10 +80,7 @@ func NewMultipleSqlConn(driverName string, conf DBConf, opts ...SqlOption) sqlx.
 		followers:      followers,
 		conf:           conf,
 		driveName:      driverName,
-	}
-
-	for _, opt := range opts {
-		opt(conn)
+		accept:         sqlOpt.accept,
 	}
 
 	conn.p2cPicker = newP2cPicker(followers, conn.accept)
@@ -251,8 +256,8 @@ func (q *queryDB) query(ctx context.Context, query func(ctx context.Context, con
 }
 
 func WithAccept(accept func(err error) bool) SqlOption {
-	return func(conn *multipleSqlConn) {
-		conn.accept = accept
+	return func(opts *sqlOptions) {
+		opts.accept = accept
 	}
 }
 
