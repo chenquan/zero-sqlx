@@ -125,23 +125,30 @@ func (p *p2cPicker) pick() (*pickResult, error) {
 func (p *p2cPicker) buildDoneFunc(c *subConn) func(err error) {
 	start := int64(timex.Now())
 	return func(err error) {
+		// 正在处理的请求数减 1
 		atomic.AddInt64(&c.inflight, -1)
 		now := timex.Now()
+		// 保存本次请求结束时的时间点，并取出上次请求时的时间点
 		last := atomic.SwapInt64(&c.last, int64(now))
+		// td计算两次请求的时间间隔
 		td := int64(now) - last
 		if td < 0 {
 			td = 0
 		}
-		w := math.Exp(float64(-td) / float64(decayTime))
+
+		// 用牛顿冷却定律中的衰减函数模型计算EWMA算法中的β值
+		beta := math.Exp(float64(-td) / float64(decayTime))
+		// 保存本次请求的耗时
 		lag := int64(now) - start
 		if lag < 0 {
 			lag = 0
 		}
 		olag := atomic.LoadUint64(&c.lag)
 		if olag == 0 {
-			w = 0
+			beta = 0
 		}
-		atomic.StoreUint64(&c.lag, uint64(float64(olag)*w+float64(lag)*(1-w)))
+		// 计算 EWMA 值
+		atomic.StoreUint64(&c.lag, uint64(float64(olag)*beta+float64(lag)*(1-beta)))
 		success := initSuccess
 
 		if err != nil && !p.acceptable(err) {
@@ -149,7 +156,8 @@ func (p *p2cPicker) buildDoneFunc(c *subConn) func(err error) {
 		}
 
 		osucc := atomic.LoadUint64(&c.success)
-		atomic.StoreUint64(&c.success, uint64(float64(osucc)*w+float64(success)*(1-w)))
+		// 指数移动加权平均法计算健康状态
+		atomic.StoreUint64(&c.success, uint64(float64(osucc)*beta+float64(success)*(1-beta)))
 
 		stamp := p.stamp.Load()
 		if now-stamp >= logInterval {
@@ -193,12 +201,12 @@ func (p *p2cPicker) logStats() {
 }
 
 type subConn struct {
-	lag      uint64
-	inflight int64
-	success  uint64
-	requests int64
-	last     int64
-	pick     int64
+	lag      uint64 // 用来保存 ewma 值(平均请求耗时)
+	inflight int64  // 用在保存当前节点正在处理的请求总数
+	success  uint64 // 用来标识一段时间内此连接的健康状态
+	requests int64  // 用来保存请求总数
+	last     int64  // 用来保存上一次请求耗时, 用于计算 ewma 值
+	pick     int64  // 保存上一次被选中的时间点
 	db       int
 	conn     sqlx.SqlConn
 }
@@ -208,6 +216,8 @@ func (c *subConn) healthy() bool {
 }
 
 func (c *subConn) load() int64 {
+	// ewma 相当于平均请求耗时，inflight 是当前节点正在处理请求的数量，相乘大致计算出了当前节点的网络负载
+
 	// plus one to avoid multiply zero
 	lag := int64(math.Sqrt(float64(atomic.LoadUint64(&c.lag) + 1)))
 	load := lag * (atomic.LoadInt64(&c.inflight) + 1)
