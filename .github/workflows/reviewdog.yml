@@ -5,10 +5,10 @@ jobs:
     name: runner / staticcheck
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
-      - uses: actions/setup-go@v3
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v4
         with:
-          go-version: "1.18"
+          go-version: "1.19"
       - uses: reviewdog/action-staticcheck@v1
         with:
           github_token: ${{ secrets.github_token }}
