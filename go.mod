@@ -3,7 +3,7 @@ module github.com/chenquan/zero-sqlx
 go 1.18
 
 require (
-	github.com/DATA-DOG/go-sqlmock v1.5.0
+	github.com/DATA-DOG/go-sqlmock v1.5.1
 	github.com/stretchr/testify v1.8.4
 	github.com/zeromicro/go-zero v1.6.0
 	go.opentelemetry.io/otel v1.19.0
