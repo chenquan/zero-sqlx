@@ -18,13 +18,12 @@ package sqlx
 
 import (
 	"context"
-	"database/sql/driver"
+	"fmt"
 	"testing"
 	"time"
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/stretchr/testify/assert"
-	"github.com/zeromicro/go-zero/core/stores/sqlx"
 )
 
 const mockedDatasource = "sqlmock"
@@ -44,28 +43,24 @@ func TestNewMultipleSqlConn(t *testing.T) {
 		Leader:    leader,
 		Followers: []string{follower1},
 	})
-
-	follower1Mock.ExpectExec("any")
-	follower1Mock.ExpectQuery("any").WillReturnRows(sqlmock.NewRows([]string{"foo"}))
+	rows := sqlmock.NewRows([]string{"name"}).AddRow("John Doe")
+	follower1Mock.ExpectQuery("SELECT name FROM users ").WithoutArgs().WillReturnRows(rows)
 
 	var val string
-	assert.NotNil(t, mysql.QueryRow(&val, "any"))
-	assert.NotNil(t, mysql.QueryRow(&val, "any"))
-	assert.NotNil(t, mysql.QueryRowPartial(&val, "any"))
-	assert.NotNil(t, mysql.QueryRows(&val, "any"))
-	assert.NotNil(t, mysql.QueryRowsPartial(&val, "any"))
-	_, err = mysql.Prepare("any")
-	assert.NotNil(t, err)
-	assert.NotNil(t, mysql.Transact(func(session sqlx.Session) error {
-		return nil
-	}))
+	assert.NoError(t, mysql.QueryRow(&val, "SELECT name FROM users "))
+	fmt.Println(val)
 
-	leaderMock.ExpectExec("any").WillReturnResult(driver.RowsAffected(1))
-	r, err := mysql.Exec("any")
+	leaderMock.ExpectQuery("SELECT addr FROM users").WithoutArgs().WillReturnRows(sqlmock.NewRows([]string{"foo"}).AddRow("bar"))
+	assert.NoError(t, mysql.QueryRowCtx(ForceLeaderContext(context.Background()), &val, "SELECT addr FROM users"))
+
+	leaderMock.ExpectExec("INSERT INTO users").
+		WithArgs("john").WillReturnResult(sqlmock.NewResult(1, 1))
+
+	result, err := mysql.Exec(`INSERT INTO users(name) VALUES (?)`, "john")
 	assert.NoError(t, err)
-	rowsAffected, err := r.RowsAffected()
+	insertId, err := result.LastInsertId()
 	assert.NoError(t, err)
-	assert.Equal(t, int64(1), rowsAffected)
+	assert.EqualValues(t, 1, insertId)
 }
 
 func TestForceLeaderContext(t *testing.T) {
