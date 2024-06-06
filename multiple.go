@@ -19,9 +19,11 @@ package sqlx
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"strconv"
 	"strings"
 
+	"github.com/zeromicro/go-zero/core/logx"
 	"github.com/zeromicro/go-zero/core/stores/sqlx"
 	"github.com/zeromicro/go-zero/core/trace"
 	"go.opentelemetry.io/otel/attribute"
@@ -88,6 +90,8 @@ func NewMultipleSqlConn(driverName string, conf DBConf, opts ...SqlOption) sqlx.
 		}
 
 		for follow := range sqlOpt.watcher {
+			logx.Infow("watcher", logx.Field("follow", follow))
+
 			if follow.Added {
 				p2cPickerObj.add(follow.Name, follow.Datasource)
 			} else {
@@ -279,4 +283,10 @@ func forceLeaderFromContext(ctx context.Context) bool {
 	value := ctx.Value(forceLeaderKey{})
 	_, ok := value.(struct{})
 	return ok
+}
+
+// ---------------
+
+func (f FollowerDB) String() string {
+	return fmt.Sprintf("FollowerDB{Name: %s, Datasource: %s, Added: %t}", f.Name, f.Datasource, f.Added)
 }

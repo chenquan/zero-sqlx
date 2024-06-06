@@ -69,3 +69,37 @@ func TestForceLeaderContext(t *testing.T) {
 
 	assert.False(t, forceLeaderFromContext(context.Background()))
 }
+
+func TestWatch(t *testing.T) {
+	leader := "leader1"
+	follower1 := "follower1_1"
+	_, follower1Mock, err := sqlmock.NewWithDSN(follower1, sqlmock.MonitorPingsOption(true))
+	assert.NoError(t, err)
+	_, leaderMock, err := sqlmock.NewWithDSN(leader, sqlmock.MonitorPingsOption(true))
+	assert.NoError(t, err)
+
+	follower1Mock.ExpectPing().WillDelayFor(time.Millisecond)
+	leaderMock.ExpectPing().WillDelayFor(time.Millisecond)
+
+	dbsChan := make(chan FollowerDB, 1)
+	defer close(dbsChan)
+
+	mysql := NewMultipleSqlConn(mockedDatasource, DBConf{
+		Leader:    leader,
+		Followers: []string{follower1},
+	}, WithWatchFollowerDB(dbsChan))
+
+	var val string
+	follower1Mock.ExpectQuery("SELECT name FROM users ").
+		WithoutArgs().
+		WillReturnRows(sqlmock.NewRows([]string{"name"}).AddRow("John Doe"))
+	assert.NoError(t, mysql.QueryRow(&val, "SELECT name FROM users "))
+	dbsChan <- FollowerDB{
+		Name:       "0",
+		Datasource: "",
+		Added:      false,
+	}
+	time.Sleep(time.Second)
+	assert.Error(t, mysql.QueryRow(&val, "SELECT name FROM users "))
+
+}
