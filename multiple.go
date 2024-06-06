@@ -46,17 +46,13 @@ type (
 		Datasource string
 		Added      bool
 	}
+
 	DBConf struct {
-		Leader    string
-		Followers []string `json:",optional"`
+		Leader       string
+		Followers    []string `json:",optional"`
+		BackToOrigin bool     `json:",optional"`
 	}
 
-	SqlOption func(*sqlOptions)
-
-	sqlOptions struct {
-		accept  func(error) bool
-		watcher <-chan FollowerDB
-	}
 	multipleSqlConn struct {
 		leader     sqlx.SqlConn
 		p2cPicker  picker // picker
@@ -83,6 +79,9 @@ func NewMultipleSqlConn(driverName string, conf DBConf, opts ...SqlOption) sqlx.
 	}
 
 	p2cPickerObj := newP2cPicker(driverName, sqlOpt.accept)
+	for i, datasource := range conf.Followers {
+		p2cPickerObj.add(strconv.Itoa(i), datasource)
+	}
 	go func() {
 		if sqlOpt.watcher == nil {
 			return
@@ -100,9 +99,6 @@ func NewMultipleSqlConn(driverName string, conf DBConf, opts ...SqlOption) sqlx.
 		}
 	}()
 
-	for i, datasource := range conf.Followers {
-		p2cPickerObj.add(strconv.Itoa(i), datasource)
-	}
 	conn.p2cPicker = p2cPickerObj
 
 	return conn
@@ -212,6 +208,10 @@ func (m *multipleSqlConn) getQueryDB(ctx context.Context, query string) queryDB 
 		}
 	}
 
+	if !m.conf.BackToOrigin {
+		return queryDB{error: err}
+	}
+
 	return queryDB{conn: m.leader}
 }
 
@@ -262,6 +262,7 @@ func (q *queryDB) query(ctx context.Context, query func(ctx context.Context, con
 	if q.error != nil {
 		return q.error
 	}
+
 	defer func() {
 		if q.done != nil {
 			q.done(err)
@@ -269,18 +270,6 @@ func (q *queryDB) query(ctx context.Context, query func(ctx context.Context, con
 	}()
 
 	return query(ctx, q.conn)
-}
-
-func WithAccept(accept func(err error) bool) SqlOption {
-	return func(opts *sqlOptions) {
-		opts.accept = accept
-	}
-}
-
-func WithWatchFollowerDB(watcher <-chan FollowerDB) SqlOption {
-	return func(opts *sqlOptions) {
-		opts.watcher = watcher
-	}
 }
 
 type forceLeaderKey struct{}
