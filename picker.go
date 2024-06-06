@@ -53,57 +53,77 @@ type (
 	pickResult struct {
 		conn       sqlx.SqlConn
 		done       func(err error)
-		followerDB int
+		followerDB string
 	}
 	p2cPicker struct {
-		conns  []*subConn
-		r      *rand.Rand
-		stamp  *syncx.AtomicDuration
-		lock   sync.Mutex
-		accept func(err error) bool
+		driverName string
+		accept     func(err error) bool
+
+		r        *rand.Rand
+		stamp    *syncx.AtomicDuration
+		connsMap map[string]*followerConn
+
+		lock sync.Mutex
 	}
 )
 
-func newP2cPicker(followers []sqlx.SqlConn, accept func(err error) bool) *p2cPicker {
-	conns := make([]*subConn, 0, len(followers))
-	for i, follower := range followers {
-		conns = append(conns, &subConn{
-			success: initSuccess,
-			db:      i,
-			conn:    follower,
-		})
+func newP2cPicker(driverName string, accept func(err error) bool) *p2cPicker {
+	return &p2cPicker{
+		r:          rand.New(rand.NewSource(time.Now().UnixNano())),
+		stamp:      syncx.NewAtomicDuration(),
+		accept:     accept,
+		connsMap:   map[string]*followerConn{},
+		driverName: driverName,
+	}
+}
+
+func (p *p2cPicker) del(name string) {
+	p.lock.Lock()
+	defer p.lock.Unlock()
+	p.connsMap[name] = nil
+	delete(p.connsMap, name)
+}
+
+func (p *p2cPicker) add(name, dns string) {
+	p.lock.Lock()
+	defer p.lock.Unlock()
+	p.connsMap[name] = newSubConn(p.driverName, name, dns, p.accept)
+}
+
+func (p *p2cPicker) getConns() []*followerConn {
+	conns := make([]*followerConn, 0, len(p.connsMap))
+	for _, conn := range p.connsMap {
+		if conn != nil {
+			conns = append(conns, conn)
+		}
 	}
 
-	return &p2cPicker{
-		conns:  conns,
-		r:      rand.New(rand.NewSource(time.Now().UnixNano())),
-		stamp:  syncx.NewAtomicDuration(),
-		accept: accept,
-	}
+	return conns
 }
 
 func (p *p2cPicker) pick() (*pickResult, error) {
 	p.lock.Lock()
 	defer p.lock.Unlock()
+	conns := p.getConns()
 
-	var chosen *subConn
-	switch len(p.conns) {
+	var chosen *followerConn
+	switch len(conns) {
 	case 0:
 		return nil, ErrNoFollowerAvailable
 	case 1:
-		chosen = p.choose(p.conns[0], nil)
+		chosen = p.choose(conns[0], nil)
 	case 2:
-		chosen = p.choose(p.conns[0], p.conns[1])
+		chosen = p.choose(conns[0], conns[1])
 	default:
-		var node1, node2 *subConn
+		var node1, node2 *followerConn
 		for i := 0; i < pickTimes; i++ {
-			a := p.r.Intn(len(p.conns))
-			b := p.r.Intn(len(p.conns) - 1)
+			a := p.r.Intn(len(conns))
+			b := p.r.Intn(len(conns) - 1)
 			if b >= a {
 				b++
 			}
-			node1 = p.conns[a]
-			node2 = p.conns[b]
+			node1 = conns[a]
+			node2 = conns[b]
 			if node1.healthy() && node2.healthy() {
 				break
 			}
@@ -118,11 +138,11 @@ func (p *p2cPicker) pick() (*pickResult, error) {
 	return &pickResult{
 		conn:       chosen.conn,
 		done:       p.buildDoneFunc(chosen),
-		followerDB: chosen.db,
+		followerDB: chosen.name,
 	}, nil
 }
 
-func (p *p2cPicker) buildDoneFunc(c *subConn) func(err error) {
+func (p *p2cPicker) buildDoneFunc(c *followerConn) func(err error) {
 	start := int64(timex.Now())
 	return func(err error) {
 		// 正在处理的请求数减 1
@@ -168,7 +188,7 @@ func (p *p2cPicker) buildDoneFunc(c *subConn) func(err error) {
 	}
 }
 
-func (p *p2cPicker) choose(c1, c2 *subConn) *subConn {
+func (p *p2cPicker) choose(c1, c2 *followerConn) *followerConn {
 	start := int64(timex.Now())
 	if c2 == nil {
 		atomic.StoreInt64(&c1.pick, start)
@@ -191,31 +211,32 @@ func (p *p2cPicker) choose(c1, c2 *subConn) *subConn {
 func (p *p2cPicker) logStats() {
 	p.lock.Lock()
 	defer p.lock.Unlock()
-	stats := make([]string, 0, len(p.conns))
-	for _, conn := range p.conns {
-		stats = append(stats, fmt.Sprintf("db: %d, load: %d, reqs: %d",
-			conn.db, conn.load(), atomic.SwapInt64(&conn.requests, 0)))
+	conns := p.getConns()
+	stats := make([]string, 0, len(conns))
+	for _, conn := range conns {
+		stats = append(stats, fmt.Sprintf("db: %s, load: %d, reqs: %d",
+			conn.name, conn.load(), atomic.SwapInt64(&conn.requests, 0)))
 	}
 
 	logx.Statf("follower db - p2c - %s", strings.Join(stats, "; "))
 }
 
-type subConn struct {
+type followerConn struct {
 	lag      uint64 // 用来保存 ewma 值(平均请求耗时)
 	inflight int64  // 用在保存当前节点正在处理的请求总数
 	success  uint64 // 用来标识一段时间内此连接的健康状态
 	requests int64  // 用来保存请求总数
 	last     int64  // 用来保存上一次请求耗时, 用于计算 ewma 值
 	pick     int64  // 保存上一次被选中的时间点
-	db       int
+	name     string
 	conn     sqlx.SqlConn
 }
 
-func (c *subConn) healthy() bool {
+func (c *followerConn) healthy() bool {
 	return atomic.LoadUint64(&c.success) > throttleSuccess
 }
 
-func (c *subConn) load() int64 {
+func (c *followerConn) load() int64 {
 	// ewma 相当于平均请求耗时，inflight 是当前节点正在处理请求的数量，相乘大致计算出了当前节点的网络负载
 
 	// plus one to avoid multiply zero
@@ -229,10 +250,18 @@ func (c *subConn) load() int64 {
 }
 
 func (p *p2cPicker) acceptable(err error) bool {
-	ok := err == nil || err == sql.ErrNoRows || err == sql.ErrTxDone || err == context.Canceled
+	ok := err == nil || errors.Is(err, sql.ErrNoRows) || errors.Is(err, sql.ErrTxDone) || errors.Is(err, context.Canceled)
 	if p.accept == nil {
 		return ok
 	}
 
 	return ok || p.accept(err)
+}
+
+func newSubConn(driverName, name, datasource string, acceptable func(err error) bool) *followerConn {
+	return &followerConn{
+		success: initSuccess,
+		name:    name,
+		conn:    sqlx.NewSqlConn(driverName, datasource, sqlx.WithAcceptable(acceptable)),
+	}
 }
