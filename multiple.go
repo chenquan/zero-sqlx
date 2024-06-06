@@ -87,14 +87,11 @@ func NewMultipleSqlConn(driverName string, conf DBConf, opts ...SqlOption) sqlx.
 			return
 		}
 
-		for {
-			select {
-			case follow := <-sqlOpt.watcher:
-				if follow.Added {
-					p2cPickerObj.add(follow.Name, follow.Datasource)
-				} else {
-					p2cPickerObj.del(follow.Datasource)
-				}
+		for follow := range sqlOpt.watcher {
+			if follow.Added {
+				p2cPickerObj.add(follow.Name, follow.Datasource)
+			} else {
+				p2cPickerObj.del(follow.Datasource)
 			}
 		}
 	}()
