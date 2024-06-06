@@ -19,6 +19,7 @@ package sqlx
 import (
 	"context"
 	"database/sql"
+	"strconv"
 	"strings"
 
 	"github.com/zeromicro/go-zero/core/stores/sqlx"
@@ -40,6 +41,11 @@ var (
 var _ sqlx.SqlConn = (*multipleSqlConn)(nil)
 
 type (
+	FollowerDB struct {
+		Name       string
+		Datasource string
+		Added      bool
+	}
 	DBConf struct {
 		Leader    string
 		Followers []string `json:",optional"`
@@ -48,16 +54,15 @@ type (
 	SqlOption func(*sqlOptions)
 
 	sqlOptions struct {
-		accept func(error) bool
+		accept  func(error) bool
+		watcher <-chan FollowerDB
 	}
 	multipleSqlConn struct {
-		leader         sqlx.SqlConn
-		enableFollower bool
-		p2cPicker      picker // picker
-		followers      []sqlx.SqlConn
-		conf           DBConf
-		accept         func(error) bool
-		driveName      string
+		leader     sqlx.SqlConn
+		p2cPicker  picker // picker
+		conf       DBConf
+		driveName  string
+		sqlOptions *sqlOptions
 	}
 )
 
@@ -69,21 +74,36 @@ func NewMultipleSqlConn(driverName string, conf DBConf, opts ...SqlOption) sqlx.
 	}
 
 	leader := sqlx.NewSqlConn(driverName, conf.Leader, sqlx.WithAcceptable(sqlOpt.accept))
-	followers := make([]sqlx.SqlConn, 0, len(conf.Followers))
-	for _, datasource := range conf.Followers {
-		followers = append(followers, sqlx.NewSqlConn(driverName, datasource, sqlx.WithAcceptable(sqlOpt.accept)))
-	}
 
 	conn := &multipleSqlConn{
-		leader:         leader,
-		enableFollower: len(followers) != 0,
-		followers:      followers,
-		conf:           conf,
-		driveName:      driverName,
-		accept:         sqlOpt.accept,
+		leader:     leader,
+		conf:       conf,
+		driveName:  driverName,
+		sqlOptions: &sqlOpt,
 	}
 
-	conn.p2cPicker = newP2cPicker(followers, conn.accept)
+	p2cPickerObj := newP2cPicker(driverName, sqlOpt.accept)
+	go func() {
+		if sqlOpt.watcher == nil {
+			return
+		}
+
+		for {
+			select {
+			case follow := <-sqlOpt.watcher:
+				if follow.Added {
+					p2cPickerObj.add(follow.Name, follow.Datasource)
+				} else {
+					p2cPickerObj.del(follow.Datasource)
+				}
+			}
+		}
+	}()
+
+	for i, datasource := range conf.Followers {
+		p2cPickerObj.add(strconv.Itoa(i), datasource)
+	}
+	conn.p2cPicker = p2cPickerObj
 
 	return conn
 }
@@ -178,10 +198,6 @@ func (m *multipleSqlConn) getQueryDB(ctx context.Context, query string) queryDB 
 		return queryDB{conn: m.leader}
 	}
 
-	if !m.enableFollower {
-		return queryDB{conn: m.leader}
-	}
-
 	if !m.containSelect(query) {
 		return queryDB{conn: m.leader}
 	}
@@ -212,10 +228,10 @@ func (m *multipleSqlConn) startSpanWithLeader(ctx context.Context) (context.Cont
 	return ctx, span
 }
 
-func (m *multipleSqlConn) startSpanWithFollower(ctx context.Context, db int) (context.Context, oteltrace.Span) {
+func (m *multipleSqlConn) startSpanWithFollower(ctx context.Context, dbName string) (context.Context, oteltrace.Span) {
 	ctx, span := m.startSpan(ctx)
 	span.SetAttributes(followerTypeAttributeKey)
-	span.SetAttributes(followerDBSqlAttributeKey.Int(db))
+	span.SetAttributes(followerDBSqlAttributeKey.String(dbName))
 	return ctx, span
 }
 
@@ -239,7 +255,7 @@ type queryDB struct {
 	error      error
 	done       func(err error)
 	follower   bool
-	followerDB int
+	followerDB string
 }
 
 func (q *queryDB) query(ctx context.Context, query func(ctx context.Context, conn sqlx.SqlConn) error) (err error) {
@@ -258,6 +274,12 @@ func (q *queryDB) query(ctx context.Context, query func(ctx context.Context, con
 func WithAccept(accept func(err error) bool) SqlOption {
 	return func(opts *sqlOptions) {
 		opts.accept = accept
+	}
+}
+
+func WithWatchFollowerDB(watcher <-chan FollowerDB) SqlOption {
+	return func(opts *sqlOptions) {
+		opts.watcher = watcher
 	}
 }
 
