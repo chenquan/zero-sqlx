@@ -211,9 +211,8 @@ func (p *p2cPicker) choose(c1, c2 *followerConn) *followerConn {
 func (p *p2cPicker) logStats() {
 	p.lock.Lock()
 	defer p.lock.Unlock()
-	conns := p.getConns()
-	stats := make([]string, 0, len(conns))
-	for _, conn := range conns {
+	stats := make([]string, 0, len(p.connsMap))
+	for _, conn := range p.connsMap {
 		stats = append(stats, fmt.Sprintf("db: %s, load: %d, reqs: %d",
 			conn.name, conn.load(), atomic.SwapInt64(&conn.requests, 0)))
 	}
